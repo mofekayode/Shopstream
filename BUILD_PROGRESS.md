@@ -31,20 +31,20 @@
 ## Milestone Progress
 
 ### Milestone 0: Repo and Platform Skeleton
-**Status**: 🔴 Not Started
+**Status**: 🟡 In Progress
 **Owner**: Platform Team
 **Target Date**: TBD
 
 #### Tasks
-- [ ] Create GitHub repository structure
-  - [ ] `/infra` - Terraform/CDK modules
-  - [ ] `/platform` - Shared libraries, protos
-  - [ ] `/services` - Microservices
-  - [ ] `/frontend` - Next.js applications
-  - [ ] `/tests` - E2E and load tests
-  - [ ] `/docs` - ADRs, runbooks, architecture
-- [ ] Documentation templates
-  - [ ] `ADR-template.md`
+- [x] Create GitHub repository structure
+  - [x] `/infra` - Terraform/CDK modules
+  - [x] `/platform` - Shared libraries, protos
+  - [x] `/services` - Microservices
+  - [x] `/frontend` - Next.js applications
+  - [x] `/tests` - E2E and load tests
+  - [x] `/docs` - ADRs, runbooks, architecture
+- [x] Documentation templates
+  - [x] `ADR-template.md`
   - [ ] `runbook-template.md`
   - [ ] `incident-template.md`
 - [ ] AWS Infrastructure

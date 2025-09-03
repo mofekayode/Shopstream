@@ -12,10 +12,10 @@ The main container application that orchestrates all microfrontends.
 
 ## Tech Stack
 - Next.js 14 with App Router
-- Module Federation
 - TypeScript
 - Tailwind CSS
 - shadcn/ui
+- Module Federation (to be added when integrating remotes)
 
 ## Getting Started
 ```bash
