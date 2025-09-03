@@ -508,15 +508,16 @@
 | analytics-service | 🔴 Not Started | - | 3009 | Kinesis |
 | compliance-service | 🔴 Not Started | - | 3010 | Step Functions |
 
-## Frontend Modules
+## Frontend Microfrontends
 
-| Module | Status | Port | Dependencies |
-|--------|--------|------|--------------|
-| frontend-shell | 🔴 Not Started | 3000 | identity-service |
-| frontend-catalog | 🔴 Not Started | - | catalog-service |
-| frontend-checkout | 🔴 Not Started | - | orders-service |
-| frontend-feed | 🔴 Not Started | - | feed-service |
-| frontend-admin | 🔴 Not Started | 3100 | analytics-service |
+| App | Status | Port | Owner | Dependencies |
+|-----|--------|------|-------|--------------|
+| shell | 🔴 Not Started | 3000 | Platform Team | identity-service |
+| catalog | 🔴 Not Started | 3001 | Catalog Team | catalog-service, search-service |
+| checkout | 🔴 Not Started | 3002 | Checkout Team | orders-service, payments-service |
+| feed | 🔴 Not Started | 3003 | Feed Team | feed-service, realtime-service |
+| admin | 🔴 Not Started | 3100 | Admin Team | All services |
+| shared | 🔴 Not Started | - | Platform Team | - |
 
 ## Testing Strategy
 
@@ -549,7 +550,8 @@
 4. **EventBridge + Kinesis over pure Kafka** - Clear separation of concerns
 5. **ADOT over direct X-Ray SDK** - Unified tracing across all services
 6. **ArgoCD over CodeDeploy** - Better K8s deployment management
-7. **No auto-push to GitHub** - All changes reviewed before commit
+7. **Module Federation for Microfrontends** - True team autonomy with independent deployments
+8. **No auto-push to GitHub** - All changes reviewed before commit
 
 ## Current Blockers
 None
