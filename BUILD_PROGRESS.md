@@ -1,6 +1,7 @@
 # Shopstream Build Progress Tracker
 
 ## Project Configuration
+- **Backend Language**: Node.js with TypeScript
 - **Primary Stack**: AWS-native services
 - **API Strategy**: REST (external), gRPC (internal), GraphQL (Feed service only)
 - **External Services**: Stripe (payments), Sentry (error tracking)

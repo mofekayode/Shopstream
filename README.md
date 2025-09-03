@@ -19,6 +19,7 @@ Shopstream is an open source learning product that demonstrates production-grade
 
 ## Tech Stack
 
+- **Backend**: Node.js, TypeScript, Express
 - **Frontend**: Next.js, React, shadcn/ui
 - **APIs**: REST (external), gRPC (internal), GraphQL (feed aggregation)
 - **Infrastructure**: AWS (EKS, RDS, DynamoDB, S3, CloudFront, etc.)
