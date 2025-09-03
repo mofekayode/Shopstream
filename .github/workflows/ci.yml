@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Check formatting
+        run: npm run format:check
+      
+      - name: Lint code
+        run: npm run lint
+      
+      - name: Type check
+        run: npm run typecheck
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Build platform libraries
+        run: npm run build --workspace=platform/lib
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+      
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          languages: javascript, typescript
+
+  terraform:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/dev
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Init
+        run: terraform init -backend=false
+      
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive ../..
+      
+      - name: Terraform Validate
+        run: terraform validate
