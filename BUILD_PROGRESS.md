@@ -2,13 +2,23 @@
 
 ## Project Configuration
 - **Backend**: Node.js, TypeScript, Express, Prisma ORM
-- **Frontend**: Next.js, React, TypeScript
+- **Frontend**: Next.js, React, TypeScript (Module Federation for microfrontends)
 - **Primary Stack**: AWS-native services
 - **API Strategy**: REST (external), gRPC (internal), GraphQL (Feed service only)
-- **External Services**: Stripe (payments), Sentry (error tracking)
+- **External Services**: 
+  - Stripe (payments)
+  - Sentry (error tracking)
+  - AWS SES (email)
+  - AWS AppConfig (feature flags)
 - **Repository**: GitHub
-- **CI/CD**: GitHub Actions + AWS CodeDeploy/ECR
-- **IaC**: Terraform/CDK
+- **CI/CD**: GitHub Actions (CI) + ArgoCD (CD for EKS)
+- **IaC**: Terraform
+- **Tracing**: AWS Distro for OpenTelemetry (ADOT) → X-Ray & CloudWatch
+- **Event Streaming**:
+  - EventBridge for integration events & low-volume fanout
+  - Kinesis Data Streams for high-throughput analytics & feed
+  - NO Kafka/MSK (keeping it lean)
+- **Security**: WAF, KMS, GuardDuty, CloudTrail from day one
 
 ## Overall Progress
 **Current Status**: Not Started
@@ -39,27 +49,48 @@
   - [ ] `incident-template.md`
 - [ ] AWS Infrastructure
   - [ ] EKS cluster with one node group
-  - [ ] ALB Ingress Controller
+  - [ ] ALB Ingress Controller (HTTP-2 for gRPC support)
   - [ ] CloudWatch monitoring setup
-  - [ ] X-Ray tracing setup
+  - [ ] ADOT Collector deployment (exports to X-Ray & CloudWatch)
   - [ ] AWS Secrets Manager integration
-  - [ ] S3 buckets (static, media)
-  - [ ] CloudFront distribution
-  - [ ] Route 53 hosted zone
+  - [ ] S3 buckets (static, media, audit with Object Lock)
+  - [ ] CloudFront distribution with WAF
+  - [ ] Route 53 hosted zone with DKIM/DMARC for SES
   - [ ] ACM certificate
+  - [ ] VPC endpoints for S3 and DynamoDB (cost optimization)
+  - [ ] Single NAT Gateway (or egress proxy)
+  - [ ] KMS keys for encryption at rest
+  - [ ] CloudTrail and GuardDuty enabled
+  - [ ] AWS Budgets with alerts
+- [ ] Security Baseline
+  - [ ] AWS WAF on CloudFront and ALB
+  - [ ] ECR image scanning enabled
+  - [ ] GitHub CodeQL security scanning
+  - [ ] IAM least privilege with IRSA for EKS
 - [ ] CI/CD Pipeline
-  - [ ] GitHub Actions workflows
-  - [ ] ECR repositories
-  - [ ] ArgoCD or AWS CodeDeploy setup
+  - [ ] GitHub Actions workflows (build, test, push to ECR)
+  - [ ] ECR repositories with vulnerability scanning
+  - [ ] ArgoCD for Kubernetes deployments
+  - [ ] Buf for protobuf management & CI checks
+- [ ] Backup & Recovery
+  - [ ] RDS automated snapshots with PITR
+  - [ ] DynamoDB PITR for critical tables
+  - [ ] S3 versioning on media buckets
+  - [ ] OpenSearch snapshots to S3
 - [ ] Basic Next.js BFF
   - [ ] Landing page
   - [ ] Health endpoint
-  - [ ] X-Ray instrumentation
+  - [ ] OpenTelemetry instrumentation
 
 **Acceptance Criteria**:
 - Landing page accessible via CloudFront
-- End-to-end trace visible in X-Ray
+- End-to-end trace visible in X-Ray via ADOT
 - CI builds and pushes to ECR
+- ArgoCD syncing and healthy
+- WAF rules active and visible in logs
+- Budget alarm fires on test threshold
+- PITR enabled for RDS and DynamoDB
+- S3 Object Lock on audit bucket
 
 **Notes**: 
 
@@ -74,10 +105,14 @@
 #### Services to Build
 - **identity-service**
   - [ ] REST API (signup, login, refresh, me)
-  - [ ] JWT implementation
-  - [ ] DynamoDB users table
+  - [ ] JWT implementation with short-lived access tokens
+  - [ ] DynamoDB users table with GSI for email
+  - [ ] Argon2 or bcrypt password hashing
+  - [ ] Refresh token rotation with reuse detection
+  - [ ] Blocked token list with TTL
   - [ ] RBAC claims system
   - [ ] Session management
+  - [ ] Rate limiting with Redis token buckets
 
 - **frontend-shell**
   - [ ] Next.js App Router setup
@@ -110,12 +145,13 @@
 
 #### Services to Build
 - **catalog-service**
-  - [ ] RDS PostgreSQL setup
+  - [ ] RDS PostgreSQL setup with automated backups
   - [ ] Prisma schema: product, sku, price, stock, region
+  - [ ] Version columns and optimistic locking
   - [ ] Prisma migrations and seed data
   - [ ] REST endpoints (list, detail, admin CRUD)
   - [ ] EventBridge integration for ProductChanged
-  - [ ] Versioning system
+  - [ ] Multi-tenancy support (tenant_id if needed)
 
 - **frontend-catalog**
   - [ ] Product list page
@@ -142,13 +178,14 @@
 #### Services to Build
 - **orders-service**
   - [ ] gRPC API (CreateOrder, GetOrder, ListOrders)
-  - [ ] Step Functions workflow
+  - [ ] Step Functions Standard workflow (not Express)
     - [ ] Reserve inventory
     - [ ] Create payment intent
     - [ ] Capture payment
     - [ ] Finalize order
-    - [ ] Compensation logic
-  - [ ] DynamoDB idempotency store
+    - [ ] Compensation logic with automatic rollback
+  - [ ] DynamoDB idempotency store with TTL
+  - [ ] Unique constraint via condition expressions
 
 - **payments-service**
   - [ ] Stripe integration (test mode)
@@ -178,21 +215,26 @@
 **Dependencies**: Milestone 3
 
 #### Infrastructure
-- [ ] Amazon MSK or Kinesis setup
-- [ ] EventBridge event bus
+- [ ] EventBridge custom event bus (integration events)
+- [ ] Kinesis Data Streams (high-throughput analytics)
 - [ ] SQS queues with DLQs
+- [ ] EventBridge Schema Registry for validation
 
-#### Event Topics/Streams
-- [ ] product.events
-- [ ] order.lifecycle
-- [ ] payment.events
-- [ ] analytics.raw
+#### Event Streams (Clear Separation)
+- [ ] **EventBridge**: product.changed, order.lifecycle, payment.settled
+- [ ] **Kinesis**: analytics.raw, user.activity, clickstream
 
 #### Service Updates
-- [ ] Catalog publishes to EventBridge
-- [ ] Orders publishes lifecycle events
-- [ ] Payments publishes settlement events
-- [ ] Email worker consumes SQS
+- [ ] Catalog publishes ProductChanged to EventBridge
+- [ ] Orders publishes lifecycle to EventBridge
+- [ ] Payments publishes settlement to EventBridge  
+- [ ] Analytics ingests from Kinesis
+- [ ] Email worker consumes SQS with DLQ
+
+#### Testing
+- [ ] Unit tests for event publishers/consumers
+- [ ] Integration tests with LocalStack
+- [ ] Contract tests for event schemas
 
 **Acceptance Criteria**:
 - Event flow visible in CloudWatch
@@ -211,9 +253,13 @@
 
 #### Services to Build
 - **search-service**
-  - [ ] Amazon OpenSearch domain
-  - [ ] DMS CDC from RDS
-  - [ ] Kinesis to OpenSearch pipeline
+  - [ ] Amazon OpenSearch domain with index templates
+  - [ ] DMS task (full load + CDC)
+  - [ ] Kinesis to OpenSearch Lambda indexer
+  - [ ] Retry logic with exponential backoff
+  - [ ] Dead letter S3 bucket for failed mappings
+  - [ ] Nightly reconciliation job for drift
+  - [ ] ILM policies for index rotation
   - [ ] REST query API
   - [ ] Hydration from Catalog
 
@@ -299,8 +345,12 @@
 #### Services to Build
 - **realtime-service**
   - [ ] API Gateway WebSocket API
-  - [ ] Lambda WebSocket handlers
-  - [ ] ElastiCache pub/sub
+  - [ ] Lambda routes: $connect, $disconnect, $default
+  - [ ] DynamoDB connections table (connectionId, userId, channels)
+  - [ ] HTTP endpoint for service-to-service posting
+  - [ ] API Gateway Management API for posting to connections
+  - [ ] ElastiCache pub/sub for in-cluster fanout
+  - [ ] EventBridge for cross-component signals
   - [ ] SSE fallback endpoints
 
 - **frontend-realtime**
@@ -325,16 +375,18 @@
 
 #### Services to Build
 - **analytics-service**
-  - [ ] Kinesis consumer
+  - [ ] Kinesis Data Analytics (managed Flink)
+  - [ ] Write to Redis lists & Postgres projections
   - [ ] Daily aggregation jobs
-  - [ ] CloudWatch custom metrics
-  - [ ] RDS rollup tables
+  - [ ] CloudWatch custom metrics emission
+  - [ ] RDS rollup tables for durability
+  - [ ] CloudWatch Synthetics canaries (homepage, checkout)
 
 - **frontend-admin**
   - [ ] Admin dashboard
-  - [ ] CloudWatch integration
-  - [ ] Feature flags UI
-  - [ ] SLO monitoring
+  - [ ] CloudWatch/Grafana integration
+  - [ ] AWS AppConfig feature flags UI
+  - [ ] SLO monitoring dashboards
 
 **Acceptance Criteria**:
 - Daily rollups by 01:05 local
@@ -466,13 +518,38 @@
 | frontend-feed | 🔴 Not Started | - | feed-service |
 | frontend-admin | 🔴 Not Started | 3100 | analytics-service |
 
+## Testing Strategy
+
+### Testing Pyramid
+- **Unit Tests**: 80% coverage minimum (Jest, Mocha)
+- **Integration Tests**: API & database layer (Supertest, TestContainers)
+- **Contract Tests**: API contracts (Pact), gRPC (Buf breaking changes)
+- **E2E Tests**: Critical user journeys (Playwright, Cypress)
+- **Load Tests**: k6 for API, Locust for scenarios
+- **Chaos Tests**: AWS FIS for failure injection
+
+### CI Testing Gates
+- Unit tests must pass
+- Integration tests with LocalStack
+- Contract tests for all APIs
+- Security scanning (CodeQL, ECR scanning)
+- Lighthouse performance budget checks
+
+### Testing Infrastructure
+- LocalStack for AWS service mocking
+- TestContainers for database testing
+- GitHub Actions for CI pipeline
+- Separate test environment in AWS
+
 ## Key Decisions Made
 
 1. **GraphQL only for Feed Service** - Best demonstrates aggregation benefits
 2. **AWS-native services preferred** - Reduces operational overhead
 3. **Step Functions over Temporal** - Native AWS orchestration
-4. **EventBridge + Kinesis over pure Kafka** - Better AWS integration
-5. **X-Ray over Jaeger** - Native tracing solution
+4. **EventBridge + Kinesis over pure Kafka** - Clear separation of concerns
+5. **ADOT over direct X-Ray SDK** - Unified tracing across all services
+6. **ArgoCD over CodeDeploy** - Better K8s deployment management
+7. **No auto-push to GitHub** - All changes reviewed before commit
 
 ## Current Blockers
 None
