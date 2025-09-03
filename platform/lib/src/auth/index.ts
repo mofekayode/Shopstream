@@ -5,7 +5,7 @@ import {
   ConfirmSignUpCommand,
   GetUserCommand,
   GlobalSignOutCommand,
-  type UserAttributeType,
+  type AttributeType,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 
@@ -169,7 +169,7 @@ export class CognitoAuthService {
 
     const response = await this.client.send(command);
     
-    const attributes = response.UserAttributes?.reduce((acc: Record<string, string>, attr: UserAttributeType) => {
+    const attributes = response.UserAttributes?.reduce((acc: Record<string, string>, attr: AttributeType) => {
       if (attr.Name && attr.Value) {
         acc[attr.Name] = attr.Value;
       }
@@ -181,7 +181,7 @@ export class CognitoAuthService {
       email: attributes.email,
       emailVerified: attributes.email_verified === 'true',
       roles: (attributes['custom:roles'] || 'user').split(','),
-      createdAt: new Date(response.UserCreateDate!),
+      createdAt: new Date(), // UserCreateDate is not available from GetUser
     };
   }
 }
