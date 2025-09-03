@@ -1,7 +1,8 @@
 # Shopstream Build Progress Tracker
 
 ## Project Configuration
-- **Backend Language**: Node.js with TypeScript
+- **Backend**: Node.js, TypeScript, Express, Prisma ORM
+- **Frontend**: Next.js, React, TypeScript
 - **Primary Stack**: AWS-native services
 - **API Strategy**: REST (external), gRPC (internal), GraphQL (Feed service only)
 - **External Services**: Stripe (payments), Sentry (error tracking)
@@ -110,7 +111,8 @@
 #### Services to Build
 - **catalog-service**
   - [ ] RDS PostgreSQL setup
-  - [ ] Schema: product, sku, price, stock, region
+  - [ ] Prisma schema: product, sku, price, stock, region
+  - [ ] Prisma migrations and seed data
   - [ ] REST endpoints (list, detail, admin CRUD)
   - [ ] EventBridge integration for ProductChanged
   - [ ] Versioning system
