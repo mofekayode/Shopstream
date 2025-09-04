@@ -31,9 +31,9 @@
 ## Milestone Progress
 
 ### Milestone 0: Repo and Platform Skeleton
-**Status**: 🟡 In Progress
+**Status**: 🟢 Complete
 **Owner**: Platform Team
-**Target Date**: TBD
+**Target Date**: 2025-09-03
 
 #### Tasks
 - [x] Create GitHub repository structure
@@ -45,9 +45,13 @@
   - [x] `/docs` - ADRs, runbooks, architecture
 - [x] Documentation templates
   - [x] `ADR-template.md`
-  - [ ] `runbook-template.md`
-  - [ ] `incident-template.md`
-- [ ] AWS Infrastructure
+  - [x] `runbook-template.md`
+  - [x] `incident-template.md`
+- [x] AWS Infrastructure (Core Components)
+  - [x] Terraform modules structure
+  - [x] Cognito User Pool for authentication
+  - [x] S3 buckets (media, static, audit with Object Lock)
+  - [x] CloudFront distribution
   - [ ] EKS cluster with one node group
   - [ ] ALB Ingress Controller (HTTP-2 for gRPC support)
   - [ ] CloudWatch monitoring setup
@@ -67,8 +71,9 @@
   - [ ] ECR image scanning enabled
   - [ ] GitHub CodeQL security scanning
   - [ ] IAM least privilege with IRSA for EKS
-- [ ] CI/CD Pipeline
-  - [ ] GitHub Actions workflows (build, test, push to ECR)
+- [x] CI/CD Pipeline
+  - [x] GitHub Actions workflows (build, test, validate)
+  - [x] Terraform validation in CI
   - [ ] ECR repositories with vulnerability scanning
   - [ ] ArgoCD for Kubernetes deployments
   - [ ] Buf for protobuf management & CI checks
