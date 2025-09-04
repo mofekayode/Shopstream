@@ -10,6 +10,18 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.23"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.11"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   # Uncomment and configure for remote state
@@ -48,13 +60,20 @@ provider "kubernetes" {
   }
 }
 
-locals {
-  project_name = "shopstream"
-  environment  = "dev"
-  
-  common_tags = {
-    Environment = local.environment
-    Project     = local.project_name
-    CreatedAt   = timestamp()
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args = [
+        "eks",
+        "get-token",
+        "--cluster-name",
+        module.eks.cluster_id
+      ]
+    }
   }
 }

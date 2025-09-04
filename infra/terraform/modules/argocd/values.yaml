@@ -1,0 +1,195 @@
+global:
+  image:
+    tag: v2.9.3
+  
+server:
+  replicas: ${server_replicas}
+  
+  autoscaling:
+    enabled: true
+    minReplicas: ${server_replicas}
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 50
+    targetMemoryUtilizationPercentage: 50
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  service:
+    type: NodePort
+    servicePortHttp: 80
+    servicePortHttps: 443
+    servicePortGrpc: 443
+  
+  ingress:
+    enabled: false  # We're using Kubernetes ingress resource instead
+  
+  config:
+    url: https://argocd.${domain}
+    
+    repositories: |
+      - type: git
+        url: https://github.com/${github_org}/${github_repo}
+    
+    oidc.config: |
+%{ if enable_dex ~}
+      name: GitHub
+      issuer: https://github.com
+      clientId: $oidc.github.clientId
+      clientSecret: $oidc.github.clientSecret
+      requestedScopes: ["openid", "profile", "email", "groups"]
+      requestedIDTokenClaims: {"groups": {"essential": true}}
+%{ endif ~}
+    
+    resource.customizations: |
+      admissionregistration.k8s.io/MutatingWebhookConfiguration:
+        ignoreDifferences: |
+          jsonPointers:
+          - /webhooks/0/clientConfig/caBundle
+      admissionregistration.k8s.io/ValidatingWebhookConfiguration:
+        ignoreDifferences: |
+          jsonPointers:
+          - /webhooks/0/clientConfig/caBundle
+
+  rbacConfig:
+    policy.default: role:readonly
+    policy.csv: |
+      p, role:admin, applications, *, */*, allow
+      p, role:admin, clusters, *, *, allow
+      p, role:admin, repositories, *, *, allow
+      p, role:admin, certificates, *, *, allow
+      p, role:admin, projects, *, *, allow
+      p, role:admin, accounts, *, *, allow
+      p, role:admin, gpgkeys, *, *, allow
+      g, argocd-admins, role:admin
+
+controller:
+  replicas: ${controller_replicas}
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+repoServer:
+  replicas: ${repo_server_replicas}
+  
+  autoscaling:
+    enabled: true
+    minReplicas: ${repo_server_replicas}
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 50
+    targetMemoryUtilizationPercentage: 50
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+redis:
+%{ if redis_ha ~}
+  enabled: false
+redis-ha:
+  enabled: true
+  replicas: 3
+  redis:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+  haproxy:
+    enabled: true
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+%{ else ~}
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+%{ endif ~}
+
+dex:
+  enabled: ${enable_dex}
+%{ if enable_dex ~}
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+%{ endif ~}
+
+applicationSet:
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+notifications:
+  enabled: ${enable_notifications}
+%{ if enable_notifications ~}
+  secret:
+    create: true
+    items:
+      slack-token: ${slack_token}
+  
+  notifiers:
+    service.slack: |
+      token: $slack-token
+  
+  templates:
+    template.app-deployed: |
+      message: |
+        {{if eq .serviceType "slack"}}:white_check_mark:{{end}} Application {{.app.metadata.name}} is now running new version.
+    template.app-health-degraded: |
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} Application {{.app.metadata.name}} has degraded.
+    template.app-sync-failed: |
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} Application {{.app.metadata.name}} sync is failed.
+  
+  triggers:
+    trigger.on-deployed: |
+      - when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        send: [app-deployed]
+    trigger.on-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [app-health-degraded]
+    trigger.on-sync-failed: |
+      - when: app.status.operationState.phase in ['Error', 'Failed']
+        send: [app-sync-failed]
+%{ endif ~}

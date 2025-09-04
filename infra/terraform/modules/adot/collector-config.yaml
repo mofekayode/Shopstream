@@ -1,0 +1,156 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  
+  awsxray:
+    endpoint: 0.0.0.0:2000
+    transport: udp
+  
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'kubernetes-pods'
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: true
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+              target_label: __address__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: kubernetes_namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              action: replace
+              target_label: kubernetes_pod_name
+
+processors:
+  batch:
+    timeout: 30s
+    send_batch_size: 500
+  
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+  
+  attributes:
+    actions:
+      - key: cluster
+        value: ${cluster_name}
+        action: upsert
+      - key: environment
+        value: ${environment}
+        action: upsert
+      - key: project
+        value: ${project_name}
+        action: upsert
+  
+  resource:
+    attributes:
+      - key: service.namespace
+        value: ${project_name}
+        action: upsert
+      - key: service.instance.id
+        from_attribute: k8s.pod.uid
+        action: insert
+  
+  k8sattributes:
+    auth_type: "serviceAccount"
+    passthrough: false
+    extract:
+      metadata:
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.deployment.name
+        - k8s.namespace.name
+        - k8s.node.name
+        - k8s.pod.start_time
+      labels:
+        - tag_name: app
+          key: app
+        - tag_name: component
+          key: component
+    pod_association:
+      - sources:
+        - from: resource_attribute
+          name: k8s.pod.ip
+      - sources:
+        - from: resource_attribute
+          name: k8s.pod.uid
+      - sources:
+        - from: connection
+
+exporters:
+  awsxray:
+    region: ${region}
+    no_verify_ssl: false
+    local_mode: false
+  
+  awscloudwatchmetrics:
+    region: ${region}
+    namespace: ${project_name}/${environment}
+    dimension_rollup_option: NoDimensionRollup
+    metric_declarations:
+      - dimensions: [[service.name], [service.name, service.namespace]]
+        metric_name_selectors:
+          - latency
+          - error_rate
+          - request_count
+      - dimensions: [[k8s.pod.name, k8s.namespace.name]]
+        metric_name_selectors:
+          - memory_usage
+          - cpu_usage
+  
+  logging:
+    loglevel: info
+  
+  awscloudwatchlogs:
+    region: ${region}
+    log_group_name: ${log_group_name}
+    log_stream_name: "adot-collector"
+
+%{ if enable_prometheus ~}
+  prometheusremotewrite:
+    endpoint: ${prometheus_endpoint}
+    timeout: 30s
+%{ endif ~}
+
+extensions:
+  health_check:
+    endpoint: :13133
+  pprof:
+    endpoint: :1888
+  zpages:
+    endpoint: :55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp, awsxray]
+      processors: [batch, memory_limiter, k8sattributes, resource, attributes]
+      exporters: [awsxray, logging]
+    
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [batch, memory_limiter, k8sattributes, resource, attributes]
+      exporters: [awscloudwatchmetrics%{ if enable_prometheus ~}, prometheusremotewrite%{ endif ~}]
+    
+    logs:
+      receivers: [otlp]
+      processors: [batch, memory_limiter, k8sattributes, resource, attributes]
+      exporters: [awscloudwatchlogs, logging]
