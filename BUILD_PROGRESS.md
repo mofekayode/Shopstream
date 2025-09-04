@@ -3,7 +3,7 @@
 ## Project Configuration
 - **Backend**: Node.js, TypeScript, Express, Prisma ORM
 - **Frontend**: Next.js, React, TypeScript (Module Federation for microfrontends)
-- **Primary Stack**: AWS-native services
+- **Primary Stack**: AWS-native services + Kafka/Temporal/Cassandra/Redis mainline
 - **API Strategy**: REST (external), gRPC (internal), GraphQL (Feed service only)
 - **External Services**: 
   - Stripe (payments)
@@ -14,11 +14,59 @@
 - **CI/CD**: GitHub Actions (CI) + ArgoCD (CD for EKS)
 - **IaC**: Terraform
 - **Tracing**: AWS Distro for OpenTelemetry (ADOT) → X-Ray & CloudWatch
-- **Event Streaming**:
-  - EventBridge for integration events & low-volume fanout
-  - Kinesis Data Streams for high-throughput analytics & feed
-  - NO Kafka/MSK (keeping it lean)
-- **Security**: WAF, KMS, GuardDuty, CloudTrail from day one
+
+## Core Tech Stack (MAINLINE)
+
+### Event Streaming & CDC
+- **MSK (Kafka)**: Single event backbone for all events
+  - Topics: product.events, order.lifecycle, payment.events, media.events, analytics.raw, activity.raw
+- **Debezium (MSK Connect)**: CDC from Postgres → Kafka
+- **Kafka Connect**: OpenSearch Sink (or indexer service) for search projection
+- **Flink on EKS**: Stream processing for feed features (reads Kafka → writes Redis/Postgres)
+- **Redis Streams**: Ultra-low-latency in-cluster pipelines (thumbnails, notifications, backpressure)
+- **EventBridge/Kinesis**: OFF by default (only if AWS/SaaS fanout needed later)
+
+### Data Stores (Right Tool for Right Job)
+- **Postgres (RDS)**: 
+  - System of record for catalog (products, SKUs, inventory)
+  - Orders table (strong consistency needed)
+  - Media metadata
+  - User profiles (if complex relationships)
+  - Any data requiring ACID transactions
+  
+- **DynamoDB**:
+  - Idempotency keys (high-speed key-value)
+  - WebSocket connections table
+  - Feature flags
+  - Session data
+  - Shopping carts (user-partitioned)
+  - Any single-table design patterns
+  
+- **Cassandra** (ONLY for write-heavy, append-only):
+  - Activity timelines (likes, views, comments) 
+  - Event streams that can tolerate eventual consistency
+  - Durable feed history (time-series data)
+  - NOT for transactional data or strong consistency needs
+  
+- **Redis**: 
+  - Keys + Sorted Sets: Hot objects, feed slices, rate limits, locks
+  - Streams: Local ordered work pipelines with consumer groups
+  - Cache layer for all data stores
+  
+- **S3**: Static/media files, audit bucket with Object Lock
+- **OpenSearch**: Search projection only (never source of truth)
+
+### Workflows
+- **Temporal on EKS** (replaces Step Functions):
+  - Orders workflow: reserve stock → create/capture payment → finalize → compensate
+  - Media workflow: ingest → transcode → thumbnail → moderate → publish
+  - DSAR workflow: orchestrate deletes/exports across all data stores
+  - Persistence: Postgres (not Cassandra)
+
+### Security & Infrastructure
+- **Security**: WAF, KMS, GuardDuty, CloudTrail, Secrets Manager, Budgets
+- **Runtime**: EKS + IRSA, ALB (HTTP/2 for gRPC), CloudFront + Route53 + ACM
+- **Auth**: Cognito + DynamoDB (user metadata)
 
 ## Overall Progress
 **Current Status**: Milestone 1 Complete
@@ -177,7 +225,8 @@
   - [ ] Version columns and optimistic locking
   - [ ] Prisma migrations and seed data
   - [ ] REST endpoints (list, detail, admin CRUD)
-  - [ ] EventBridge integration for ProductChanged
+  - [ ] Debezium CDC setup: Postgres → Kafka (product.events topic)
+  - [ ] Emit events on write to Kafka
   - [ ] Multi-tenancy support (tenant_id if needed)
 
 - **frontend-catalog**
@@ -205,7 +254,7 @@
 #### Services to Build
 - **orders-service**
   - [ ] gRPC API (CreateOrder, GetOrder, ListOrders)
-  - [ ] Step Functions Standard workflow (not Express)
+  - [ ] Temporal workflow (replaces Step Functions):
     - [ ] Reserve inventory
     - [ ] Create payment intent
     - [ ] Capture payment
@@ -213,12 +262,14 @@
     - [ ] Compensation logic with automatic rollback
   - [ ] DynamoDB idempotency store with TTL
   - [ ] Unique constraint via condition expressions
+  - [ ] Emit order.lifecycle to Kafka
+  - [ ] Redis Streams for fast local tasks
 
 - **payments-service**
   - [ ] Stripe integration (test mode)
   - [ ] Webhook handler with signature verification
-  - [ ] Reconciliation job
-  - [ ] EventBridge PaymentSettled events
+  - [ ] Reconciliation job consumes from Kafka
+  - [ ] Emit payment.events to Kafka
 
 - **frontend-checkout**
   - [ ] Cart management
@@ -235,28 +286,32 @@
 
 ---
 
-### Milestone 4: Events Backbone
+### Milestone 4: Events Backbone (Kafka Mainline)
 **Status**: 🔴 Not Started
 **Owner**: Platform Team
 **Target Date**: TBD
 **Dependencies**: Milestone 3
 
 #### Infrastructure
-- [ ] EventBridge custom event bus (integration events)
-- [ ] Kinesis Data Streams (high-throughput analytics)
-- [ ] SQS queues with DLQs
-- [ ] EventBridge Schema Registry for validation
-
-#### Event Streams (Clear Separation)
-- [ ] **EventBridge**: product.changed, order.lifecycle, payment.settled
-- [ ] **Kinesis**: analytics.raw, user.activity, clickstream
+- [ ] **MSK (Kafka)** cluster setup with topics:
+  - [ ] product.events
+  - [ ] order.lifecycle
+  - [ ] payment.events
+  - [ ] media.events
+  - [ ] analytics.raw
+  - [ ] activity.raw
+- [ ] **Debezium (MSK Connect)** for CDC:
+  - [ ] Postgres (catalog, orders) → Kafka
+- [ ] **Kafka Connect** OpenSearch Sink
+- [ ] **Redis Streams** for in-cluster pipelines
+- [ ] SQS for external/slow tasks (email)
 
 #### Service Updates
-- [ ] Catalog publishes ProductChanged to EventBridge
-- [ ] Orders publishes lifecycle to EventBridge
-- [ ] Payments publishes settlement to EventBridge  
-- [ ] Analytics ingests from Kinesis
-- [ ] Email worker consumes SQS with DLQ
+- [ ] Catalog: Debezium CDC to product.events
+- [ ] Orders: Emit to order.lifecycle
+- [ ] Payments: Emit to payment.events
+- [ ] Analytics: Consume from Kafka topics
+- [ ] Email worker: Consume from SQS
 
 #### Testing
 - [ ] Unit tests for event publishers/consumers
@@ -281,8 +336,9 @@
 #### Services to Build
 - **search-service**
   - [ ] Amazon OpenSearch domain with index templates
-  - [ ] DMS task (full load + CDC)
-  - [ ] Kinesis to OpenSearch Lambda indexer
+  - [ ] **Debezium → Kafka → OpenSearch** pipeline:
+    - [ ] Kafka Connect OpenSearch Sink OR
+    - [ ] Small indexer service consuming Kafka
   - [ ] Retry logic with exponential backoff
   - [ ] Dead letter S3 bucket for failed mappings
   - [ ] Nightly reconciliation job for drift
@@ -313,12 +369,13 @@
 #### Services to Build
 - **media-service**
   - [ ] S3 presigned URL generation
-  - [ ] Step Functions workflow
-    - [ ] Transcode with MediaConvert
-    - [ ] Thumbnail generation
-    - [ ] Rekognition moderation
-  - [ ] RDS metadata storage
-  - [ ] EventBridge MediaReady events
+  - [ ] **Temporal workflow** (replaces Step Functions):
+    - [ ] Ingest → Transcode → Thumbnail → Moderate → Publish
+    - [ ] MediaConvert for transcoding
+    - [ ] Rekognition for moderation
+  - [ ] Redis Streams for thumbnail worker jobs
+  - [ ] Postgres (RDS) metadata storage
+  - [ ] Emit media.events to Kafka on success
 
 - **frontend-media**
   - [ ] Upload component with progress
@@ -342,11 +399,14 @@
 
 #### Services to Build
 - **feed-service**
-  - [ ] ElastiCache Redis setup
-  - [ ] Kinesis Analytics for features
-  - [ ] GraphQL API (chosen use case)
+  - [ ] **Cassandra** for durable feed history and activity timelines
+  - [ ] **Redis** (keys + sorted sets) for hot feed slices
+  - [ ] **Flink on EKS** consuming Kafka for feed features:
+    - [ ] Compute scores from activity.raw
+    - [ ] Write to Redis lists + Cassandra
+  - [ ] GraphQL BFF (composes feed + profile + availability)
   - [ ] gRPC internal API
-  - [ ] PostgreSQL fallback
+  - [ ] Fallback reads from Cassandra/Postgres
 
 - **frontend-feed**
   - [ ] Infinite scroll implementation
@@ -376,6 +436,8 @@
   - [ ] DynamoDB connections table (connectionId, userId, channels)
   - [ ] HTTP endpoint for service-to-service posting
   - [ ] API Gateway Management API for posting to connections
+  - [ ] **Consume from Kafka** (order.lifecycle, activity.raw) for live updates
+  - [ ] **Redis Streams** for throttled fanout if needed
   - [ ] ElastiCache pub/sub for in-cluster fanout
   - [ ] EventBridge for cross-component signals
   - [ ] SSE fallback endpoints
@@ -402,11 +464,12 @@
 
 #### Services to Build
 - **analytics-service**
-  - [ ] Kinesis Data Analytics (managed Flink)
+  - [ ] **Consume from Kafka** (analytics.raw, order.lifecycle)
+  - [ ] **Flink on EKS** for stream processing
   - [ ] Write to Redis lists & Postgres projections
   - [ ] Daily aggregation jobs
   - [ ] CloudWatch custom metrics emission
-  - [ ] RDS rollup tables for durability
+  - [ ] Postgres (RDS) rollup tables for durability
   - [ ] CloudWatch Synthetics canaries (homepage, checkout)
 
 - **frontend-admin**
@@ -432,10 +495,11 @@
 
 #### Services to Build
 - **compliance-service**
-  - [ ] Step Functions DSAR workflow
-  - [ ] Cross-service deletion
-  - [ ] S3 audit trail
-  - [ ] Certificate generation
+  - [ ] **Temporal DSAR workflow** (replaces Step Functions):
+    - [ ] Orchestrate deletes/exports across Postgres, Cassandra, Redis, S3, OpenSearch
+  - [ ] Cross-service deletion coordination
+  - [ ] S3 audit trail with Object Lock
+  - [ ] Signed certificate generation
 
 - **frontend-compliance**
   - [ ] Admin DSAR controls
@@ -481,10 +545,13 @@
 **Dependencies**: Milestone 10
 
 #### Tasks
-- [ ] DynamoDB activity timeline
-- [ ] Partition key design
-- [ ] Hot partition mitigation
-- [ ] ADR documentation
+- [ ] **Cassandra** activity timeline implementation:
+  - [ ] Wide column design for likes/views/comments
+  - [ ] Time-series partitioning
+  - [ ] Durable feed history storage
+- [ ] DynamoDB for idempotency keys and feature flags
+- [ ] Hot partition mitigation strategies
+- [ ] ADR documentation for NoSQL choices
 
 **Acceptance Criteria**:
 - Write-heavy load handled
@@ -525,15 +592,15 @@
 | Service | Status | Repository | Port | Dependencies |
 |---------|--------|------------|------|--------------|
 | identity-service | 🟢 Complete | services/identity | 3001 | DynamoDB, Cognito |
-| catalog-service | 🔴 Not Started | - | 3002 | RDS PostgreSQL |
-| orders-service | 🔴 Not Started | - | 3003 | DynamoDB, Step Functions |
-| payments-service | 🔴 Not Started | - | 3004 | Stripe |
-| search-service | 🔴 Not Started | - | 3005 | OpenSearch |
-| media-service | 🔴 Not Started | - | 3006 | S3, MediaConvert |
-| feed-service | 🔴 Not Started | - | 3007 | ElastiCache |
-| realtime-service | 🔴 Not Started | - | 3008 | API Gateway WS |
-| analytics-service | 🔴 Not Started | - | 3009 | Kinesis |
-| compliance-service | 🔴 Not Started | - | 3010 | Step Functions |
+| catalog-service | 🔴 Not Started | - | 3002 | Postgres, Kafka (Debezium) |
+| orders-service | 🔴 Not Started | - | 3003 | DynamoDB, Temporal, Kafka, Redis Streams |
+| payments-service | 🔴 Not Started | - | 3004 | Stripe, Kafka |
+| search-service | 🔴 Not Started | - | 3005 | OpenSearch, Kafka |
+| media-service | 🔴 Not Started | - | 3006 | S3, Temporal, Redis Streams, Kafka |
+| feed-service | 🔴 Not Started | - | 3007 | Cassandra, Redis, Flink, Kafka |
+| realtime-service | 🔴 Not Started | - | 3008 | API Gateway WS, Kafka, Redis Streams |
+| analytics-service | 🔴 Not Started | - | 3009 | Kafka, Flink, Redis, Postgres |
+| compliance-service | 🔴 Not Started | - | 3010 | Temporal, All data stores |
 
 ## Frontend Microfrontends
 
@@ -569,16 +636,23 @@
 - GitHub Actions for CI pipeline
 - Separate test environment in AWS
 
-## Key Decisions Made
+## Key Decisions Made (UPDATED)
 
-1. **GraphQL only for Feed Service** - Best demonstrates aggregation benefits
-2. **AWS-native services preferred** - Reduces operational overhead
-3. **Step Functions over Temporal** - Native AWS orchestration
-4. **EventBridge + Kinesis over pure Kafka** - Clear separation of concerns
-5. **ADOT over direct X-Ray SDK** - Unified tracing across all services
-6. **ArgoCD over CodeDeploy** - Better K8s deployment management
-7. **Module Federation for Microfrontends** - True team autonomy with independent deployments
-8. **No auto-push to GitHub** - All changes reviewed before commit
+### Core Tech Stack (Per Core Tech One-Pager)
+1. **Kafka (MSK) as single event backbone** - All events flow through Kafka, no EventBridge/Kinesis in mainline
+2. **Temporal over Step Functions** - Better workflow orchestration for complex sagas
+3. **Cassandra for activity timelines** - Write-heavy append-only data and durable feed history
+4. **Debezium CDC** - Postgres → Kafka change data capture (not DMS)
+5. **Redis Streams for in-cluster pipelines** - Ultra-low-latency ordered work queues
+6. **Flink on EKS** - Stream processing for feed features (not Kinesis Analytics)
+
+### Original Decisions (Still Valid)
+7. **GraphQL only for Feed Service** - Best demonstrates aggregation benefits
+8. **AWS-native where it shines** - Cognito, S3, CloudFront, WAF, KMS, etc.
+9. **ADOT over direct X-Ray SDK** - Unified tracing across all services
+10. **ArgoCD over CodeDeploy** - Better K8s deployment management
+11. **Module Federation for Microfrontends** - True team autonomy
+12. **No auto-push to GitHub** - All changes reviewed before commit
 
 ## Current Blockers
 None

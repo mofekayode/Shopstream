@@ -9,6 +9,7 @@ import { userRouter } from './routes/user';
 import { errorHandler } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
 import { rateLimiter } from './middleware/rate-limiter';
+import { apiGatewayMiddleware, apiGatewayResponseHeaders } from './middleware/api-gateway';
 
 dotenv.config();
 
@@ -18,6 +19,10 @@ initializeTracing('identity-service');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// API Gateway middleware (should be first to capture headers)
+app.use(apiGatewayMiddleware);
+app.use(apiGatewayResponseHeaders);
 
 // Security middleware
 app.use(helmet());
