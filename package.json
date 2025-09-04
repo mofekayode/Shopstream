@@ -12,6 +12,7 @@
     "dev": "echo 'Use npm run dev:<workspace> to start specific apps'",
     "dev:shell": "npm run dev --workspace=frontend/shell",
     "dev:catalog": "npm run dev --workspace=frontend/catalog",
+    "dev:identity": "npm run dev --workspace=services/identity",
     "dev:all-frontend": "concurrently \"npm:dev:shell\" \"npm:dev:catalog\" \"npm:dev:checkout\" \"npm:dev:feed\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present || echo 'No tests yet'",
